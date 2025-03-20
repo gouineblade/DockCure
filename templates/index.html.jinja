@@ -1,6 +1,44 @@
 {% extends "base.html.jinja" %}
 {% block title %}DockCure{% endblock %}
 {% block content %}
-<p>Lorem Ipsum</p>
+    <div class="p-4">
+        <div class="container">
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="dockerImage" class="form-label">Docker image to scan</label>
+                    <input type="text" class="form-control" id="dockerImage" placeholder="ex: ubuntu:latest">
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-primary w-100" id="scanButton">Scan</button>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-warning w-100" id="fixButton">Fix docker image</button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead class="table-dark text-center">
+                        <tr>
+                            <th>Package</th>
+                            <th>Version</th>
+                            <th>Fixable Version</th>
+                            <th>CVE</th>
+                            <th>Security</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scanResults">
+                        <!-- Données ajoutées dynamiquement -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-4">
+                <label for="logs" class="form-label">Logs</label>
+                <textarea id="logs" class="form-control" rows="6" readonly></textarea>
+            </div>
+        </div>
+    </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" integrity="sha384-pzjw8f+ua7Kw1TIq0UceJNNGbQ1hU6ttY+dEXmZ0b5jpW9QSkA6ivmnQgYBhF0Zk" crossorigin="anonymous"></script>
 {% endblock %}
