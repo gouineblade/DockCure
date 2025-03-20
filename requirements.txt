@@ -1,2 +1,5 @@
 docker
 flask
+flask_cors
+flasgger
+pandas
