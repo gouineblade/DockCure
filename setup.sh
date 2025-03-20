@@ -13,27 +13,12 @@ else
     echo "✅ Grype is already installed. Skipping installation."
 fi
 
-# Check and install Tkinter based on the package manager
-echo "🔍 Checking if Tkinter is installed..."
-
 # Function to install Tkinter with apt (Ubuntu/Debian)
 install_with_apt() {
     echo "Using apt package manager to install tkinter..."
     sudo apt-get update
     sudo apt-get install -y python3-venv
 }
-
-# Function to install Tkinter with pacman (Arch Linux)
-# install_with_pacman() {
-#     echo "Using pacman package manager to install tkinter..."
-#     sudo pacman -Syu --noconfirm tk
-# }
-
-# # Function to install Tkinter with dnf (Fedora)
-# install_with_dnf() {
-#     echo "Using dnf package manager to install tkinter..."
-#     sudo dnf install -y python3-tkinter
-# }
 
 # Check the package manager and install Tkinter
 if command -v apt &> /dev/null; then
@@ -47,7 +32,7 @@ else
     exit 1
 fi
 
-echo "✅ Tkinter installation complete!"
+echo "✅ python3-venv installation complete!"
 
 
 # Run create_venv.sh
