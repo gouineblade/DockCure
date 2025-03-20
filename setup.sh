@@ -20,20 +20,20 @@ echo "🔍 Checking if Tkinter is installed..."
 install_with_apt() {
     echo "Using apt package manager to install tkinter..."
     sudo apt-get update
-    sudo apt-get install -y python3-tk python3-venv
+    sudo apt-get install -y python3-venv
 }
 
 # Function to install Tkinter with pacman (Arch Linux)
-install_with_pacman() {
-    echo "Using pacman package manager to install tkinter..."
-    sudo pacman -Syu --noconfirm tk
-}
+# install_with_pacman() {
+#     echo "Using pacman package manager to install tkinter..."
+#     sudo pacman -Syu --noconfirm tk
+# }
 
-# Function to install Tkinter with dnf (Fedora)
-install_with_dnf() {
-    echo "Using dnf package manager to install tkinter..."
-    sudo dnf install -y python3-tkinter
-}
+# # Function to install Tkinter with dnf (Fedora)
+# install_with_dnf() {
+#     echo "Using dnf package manager to install tkinter..."
+#     sudo dnf install -y python3-tkinter
+# }
 
 # Check the package manager and install Tkinter
 if command -v apt &> /dev/null; then
