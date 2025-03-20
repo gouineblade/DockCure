@@ -20,7 +20,7 @@ echo "🔍 Checking if Tkinter is installed..."
 install_with_apt() {
     echo "Using apt package manager to install tkinter..."
     sudo apt-get update
-    sudo apt-get install -y python3-tk
+    sudo apt-get install -y python3-tk python3-venv
 }
 
 # Function to install Tkinter with pacman (Arch Linux)
