@@ -13,8 +13,6 @@
                 </div>
                 <div class="col-md-3 d-flex align-items-end">
                     <button class="btn btn-primary w-100" id="scanButton">Scan</button>
-
-
                     <div class="modal fade" id="scanModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle" aria-hidden="true">
                         <div class="modal-dialog modal-dialog-centered" role="document">
                             <div class="modal-content">
@@ -32,6 +30,15 @@
                     <button class="btn btn-warning w-100" id="fixButton">Fix docker image</button>
                 </div>
             </div>
+        <div class="row justify-content-center">
+            <!-- Conteneur du spinner et du texte -->
+            <div id="loadingContainer" class="d-flex align-items-center">
+                <div id="loadingSpinner" class="spinner-border text-primary mb-3" role="status" style="display: none;">
+                </div>
+                <div id="loadingText" class="ms-2" style="display: none;" id="spinnerContent">Chargement...</div> <!-- Le texte est à droite du spinner -->
+            </div>
+        </div>
+
 
             <div class="table-responsive">
                 <table class="table table-bordered table-striped">

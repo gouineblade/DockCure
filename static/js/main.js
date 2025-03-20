@@ -14,33 +14,38 @@ function addScanResult(package, version, fixableVersion, cve, security) {
     tableBody.appendChild(row);
 }
 
-function scanImageGET(imageName) {
-    const xhr = new XMLHttpRequest();
-    xhr.open("GET", `/scan?image_name=${encodeURIComponent(imageName)}`, true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-
-    xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4) {
-            console.log("GET Response:", xhr.responseText);
+async function scanImageGET(imageName) {
+    try {
+        const response = await fetch(`/scan?image_name=${encodeURIComponent(imageName)}`);
+        if (response.ok) {
+            const data = await response.json(); // assuming the response is JSON
+            console.log("GET Response:", data);
+        } else {
+            console.error("GET request failed", response.status);
         }
-    };
-
-    xhr.send();
+    } catch (error) {
+        console.error("Error during GET request:", error);
+    }
 }
 
-function scanImagePOST(imageName) {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/scan", true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-
-    xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4) {
-            console.log("POST Response:", xhr.responseText);
+async function scanImagePOST(imageName) {
+    try {
+        const response = await fetch("/scan", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ image_name: imageName })
+        });
+        if (response.ok) {
+            const data = await response.json(); // assuming the response is JSON
+            console.log("POST Response:", data);
+        } else {
+            console.error("POST request failed", response.status);
         }
-    };
-
-    const data = JSON.stringify({ image_name: imageName });
-    xhr.send(data);
+    } catch (error) {
+        console.error("Error during POST request:", error);
+    }
 }
 
 function editElementContent(elementId, content) {
