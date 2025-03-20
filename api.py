@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, abort, redirect
+from flask import Flask, jsonify, request, abort, redirect, send_file
 from flask_cors import CORS 
 from flasgger import Swagger
 import time
@@ -6,6 +6,8 @@ import subprocess
 import json
 import os
 import threading
+import re
+from packaging.version import Version, InvalidVersion
 
 app = Flask(__name__)
 
@@ -19,17 +21,20 @@ def index():
   #redirige vers la documentation
   return redirect('/apidocs/')
 
-# Fonction pour vérifier si une version spécifique d'un package est disponible
+# Vérifier si une version spécifique d'un package est disponible
 def is_version_available(package, version):
     cmd = f"apt-cache madison {package} | grep '{version}'"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     return bool(result.stdout.strip())
 
-# Fonction pour générer un Dockerfile sécurisé
-def generate_secure_dockerfile(image_name, packages):
-    with open("Dockerfile.secure", "w") as f:
-        f.write(f"FROM {image_name}\n")
-        f.write("RUN apt-get update\n")
+# Générer dynamiquement un Dockerfile sécurisé
+def generate_secure_dockerfile(name, packages):
+    os.makedirs("images/tmp", exist_ok=True)
+    dockerfile_path = "images/tmp/Dockerfile.secure"
+    
+    with open(dockerfile_path, "w") as f:
+        f.write(f"FROM {name}\n")
+        f.write("RUN apt-get update && apt-get upgrade -y\n")
         
         for pkg in packages:
             libname = pkg["libname"]
@@ -44,30 +49,41 @@ def generate_secure_dockerfile(image_name, packages):
                 if is_version_available(libname, version):
                     f.write(f"RUN apt-get install -y {libname}={version}\n")
                 else:
-                    f.write(f"# Version {version} not found, using standard upgrade\n")
+                    f.write(f"# Version {version} non trouvée, mise à jour standard appliquée\n")
                     f.write(f"RUN apt-get install -y --only-upgrade {libname}\n")
         
-    return "Dockerfile.secure generated"
+        f.write("RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*\n")
+    
+    return "Dockerfile sécurisé généré avec succès !"
 
-@app.route('/fix/<image_name>', methods=['POST'])
-def fix_post(image_name):
+# Construire une image sécurisée
+def build_secure_image(name):
+    log("🚀 Construction de l'image sécurisée...")
+    cmd = f"docker build --rm -t {name} -f images/tmp/Dockerfile.secure ."
+    subprocess.run(cmd, shell=True)
+    
+    os.makedirs("images", exist_ok=True)
+    cmd = f"docker save {name} > images/{name}.tar"
+    subprocess.run(cmd, shell=True)
+    log(f"✅ Image sécurisée créée : {name}")
+
+@app.route('/fix/', methods=['POST'])
+def fix_post():
     """
     Corrige une image Docker en mettant à jour ou en supprimant des paquets.
     ---
     tags:
         - Fix
     parameters:
-      - name: image_name
-        in: path
-        type: string
-        required: true
-        description: Nom de l'image Docker à corriger.
       - name: body
         in: body
         required: true
         schema:
           type: object
-          properties:  
+          properties:
+            image_name:
+              type: string
+              description: Nom de l'image Docker à corriger.
             new_name:
               type: string
               description: (Optionnel) Nouveau nom pour l'image Docker corrigée.
@@ -91,13 +107,54 @@ def fix_post(image_name):
     """
     try:
         data = request.get_json()
+        image_name = data.get("image_name")
         new_name = data.get("new_name") or image_name + "-secure"
-        packages = data.get("packages", [])
+        packages = data.get("packages", []) or []
         
-        result = generate_secure_dockerfile(new_name, packages)
-        return jsonify({"status": "success", "message": result})
+        result = generate_secure_dockerfile(image_name, packages)
+        build_secure_image(new_name)
+        return jsonify({"status": "success", "message": result, "secure_image": new_name, "download": f"/image/{new_name}"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
+def build_secure_image(name):
+    """Construit une nouvelle image sécurisée"""
+    log("🚀 Construction de l'image sécurisée...")
+    cmd = f"docker build --rm -t {name} -f images/tmp/Dockerfile.secure ."
+    subprocess.run(cmd, shell=True)
+    #quand c'est fini, on sauvegarde l'image dans le dossier images
+    cmd = f"docker save {name} > images/{name}.tar"
+    subprocess.run(cmd, shell=True)
+    log(f"✅ Image sécurisée créée : {name}")
+
+# Route pour récupérer l'image Docker sécurisée (lance le téléchargement)
+
+@app.route('/image/<image_name>', methods=['GET'])
+def get_image(image_name):
+    """Télécharge l'image Docker sécurisée
+    ---
+    tags:
+      - Image
+    parameters:
+      - name: image_name
+        in: path
+        type: string
+        required: true
+        description: Nom de l'image Docker sécurisée à télécharger.
+    responses:
+      200:
+        description: Téléchargement de l'image Docker sécurisée
+      404:
+        description: Image non trouvée
+    """
+    image_path = f"images/{image_name}.tar"
+
+    # Vérifier si l'image existe
+    if not os.path.exists(image_path):
+        return jsonify({"error": "Image non trouvée"}), 404
+    
+    # Envoyer le fichier en tant que pièce jointe pour le téléchargement
+    return send_file(image_path, as_attachment=True)
 
 # Route pour retourner les scans en cours et les scans terminés
 @app.route('/scans', methods=['GET'])
@@ -157,7 +214,7 @@ def scan_post():
           properties:
             image_name:
               type: string
-              example: "nginx:latest"
+              example: "nginx"
     responses:
       200:
         description: Message confirmant le lancement du scan
@@ -193,7 +250,7 @@ def scan_get():
         in: query
         type: string
         required: true
-        example: "nginx:latest"
+        example: "nginx"
     responses:
       200:
         description: Résultat du scan
@@ -230,7 +287,7 @@ def analyze_post():
           properties:
             image_name:
               type: string
-              example: "nginx:latest"
+              example: "nginx"
     responses:
       200:
         description: Résultat de l'analyse
@@ -255,30 +312,60 @@ def analyze_post():
     return jsonify({"analysis": analysis_data, "packages_to_update": packages_to_update})
 
 def analyze_vulnerabilities(scan_results):
-    """Analyse les vulnérabilités et retourne un tableau des actions mises en place"""
+    """Analyse les vulnérabilités et retourne un tableau des actions mises en place en prenant la dernière version stable."""
 
-    data = []
+    data = {}
     packages_to_update = {}
 
     for vuln in scan_results["matches"]:
         package = vuln["artifact"]["name"]
+        current_version = vuln["artifact"]["version"]  # Version actuelle du package
         vuln_id = vuln["vulnerability"]["id"]
-        severity = vuln["vulnerability"]["severity"]
+        severity = vuln["vulnerability"]["severity"].lower()  # Normaliser la gravité
         fix_info = vuln["vulnerability"]["fix"]
+        purl = vuln["artifact"]["purl"]
 
         # Vérifier si une correction est disponible
+        fixed_version = None
         if fix_info["state"] == "fixed" and fix_info["versions"]:
-            fixed_version = fix_info["versions"][0]  # Prendre la première version corrigée
-            action = f"Mise à jour vers {fixed_version}"
-            packages_to_update[package] = fixed_version
-        else:
-            action = "Aucune correction disponible"
+            # Filtrer les versions pour exclure RC, alpha, beta, preview
+            valid_versions = [
+                v for v in fix_info["versions"]
+                if not re.search(r"(?:-|\.)(?:rc|alpha|beta|preview)", v, re.IGNORECASE)
+            ]
 
-        log(f"   - {package}: {vuln_id} | Gravité: {severity} | Action: {action}")
-        data.append([package, vuln_id, severity, action])
+            if valid_versions:
+                try:
+                    fixed_version = max(valid_versions, key=Version)
+                    #log(f"Versions valides pour {package}: {valid_versions} | Meilleure: {fixed_version}")
+                except InvalidVersion:
+                    fixed_version = None  # Gestion des erreurs
+                    #log(f"Erreur: Version invalide détectée pour {package}")
 
-    return data, packages_to_update
+        action = f"Mise à jour vers {fixed_version}" if fixed_version else "Aucune correction disponible"
 
+        # Initialiser la structure du package si elle n'existe pas encore
+        if package not in data:
+            data[package] = {
+                "package": package,
+                "master_package": purl,
+                "version": current_version,
+                "cve": {}  # Création d'un dictionnaire dynamique des niveaux de gravité
+            }
+
+        # Ajouter la CVE au bon niveau de gravité
+        if severity not in data[package]["cve"]:
+            data[package]["cve"][severity] = []
+        data[package]["cve"][severity].append(vuln_id)
+
+        #log(f"   - {package}: {vuln_id} | Gravité: {severity} | Action: {action}")
+
+        # **Mise à jour du package uniquement si la version est plus récente que l'actuelle**
+        if fixed_version:
+            if package not in packages_to_update or Version(fixed_version) > Version(packages_to_update[package]):
+                packages_to_update[package] = fixed_version
+
+    return list(data.values()), packages_to_update
 
 def log(message):
     """Affiche un message avec un timestamp"""
