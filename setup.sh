@@ -3,15 +3,28 @@
 echo "🚀 Starting setup process..."
 
 # Check if grype is installed
-echo "🔍 Checking if grype is installed..."
-if ! command -v grype &> /dev/null
-then
-    echo "💿 Grype not found. Downloading and installing..."
-    curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+if ! command -v grype &> /dev/null; then
+    echo "💿 Grype not found. Installing..."
+
+    # Check if brew is installed
+    if command -v brew &> /dev/null; then
+        echo "📦 Homebrew detected. Installing Grype via Homebrew..."
+        brew install anchore/grype/grype
+    else
+        echo "🔽 Homebrew not found. Installing Grype manually..."
+        URL="https://github.com/anchore/grype/releases/latest/download/grype-darwin-amd64"
+        curl -sSfL "$URL" -o grype
+        chmod +x grype
+        sudo mv grype /usr/local/bin/
+    fi
+
     echo "✅ Grype has been installed successfully!"
 else
     echo "✅ Grype is already installed. Skipping installation."
 fi
+
+# Check and install Tkinter based on the package manager
+echo "🔍 Checking if Tkinter is installed..."
 
 # Function to install Tkinter with apt (Ubuntu/Debian)
 install_with_apt() {
@@ -23,17 +36,8 @@ install_with_apt() {
 # Check the package manager and install Tkinter
 if command -v apt &> /dev/null; then
     install_with_apt
-elif command -v pacman &> /dev/null; then
-    install_with_pacman
-elif command -v dnf &> /dev/null; then
-    install_with_dnf
-else
-    echo "⚠️ Unsupported package manager. Please install tkinter manually."
-    exit 1
+    echo "✅ Tkinter installation complete!"
 fi
-
-echo "✅ python3-venv installation complete!"
-
 
 # Run create_venv.sh
 echo "🔧 Creating virtual environment..."
