@@ -8,6 +8,7 @@ import os
 import threading
 import re
 from packaging.version import Version, InvalidVersion
+import tempfile
 
 
 swagger_config = {
@@ -157,10 +158,21 @@ def build_secure_image(name):
     subprocess.run(cmd, shell=True)
     log(f"✅ Image sécurisée créée : {name}")
 
+
+def image_exists_locally(image_name):
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+            capture_output=True, text=True, check=True
+        )
+        return image_name in result.stdout.splitlines()
+    except subprocess.CalledProcessError:
+        return False
+
 @app.route('/autofix', methods=['POST'])
 def auto_fix():
     """
-    Analyse et génère automatiquement un Dockerfile sécurisé avec les corrections à appliquer.
+    Analyse une image Docker avec Grype et applique automatiquement les corrections via CoPa.
     ---
     tags:
       - Fix Automatisé
@@ -174,47 +186,55 @@ def auto_fix():
             image_name:
               type: string
               description: Nom de l'image Docker à analyser et corriger.
+              example: "nginx:latest"
     responses:
       200:
-        description: Dockerfile sécurisé généré avec succès.
+        description: Image corrigée avec succès via Grype + CoPa.
       400:
-        description: Paramètre manquant ou erreur d'analyse.
+        description: Paramètre manquant ou invalide.
+      500:
+        description: Erreur lors de l'exécution de Grype ou CoPa.
     """
     data = request.get_json()
     image_name = data.get("image_name")
     if not image_name:
         return jsonify({"error": "Paramètre 'image_name' requis"}), 400
 
-    scan_result = db_scan_results.get(image_name)
-    if scan_result is None:
-        return jsonify({"error": "Aucun scan trouvé pour cette image"}), 404
-    if scan_result.get("error"):
-        return jsonify({"error": "Une erreur est survenue lors du scan"}), 400
-    if "message" in scan_result:
-        return jsonify({"error": "Le scan est encore en cours"}), 400
+    #if not image_exists_locally(image_name):
+    #    return jsonify({"error": f"L'image '{image_name}' n'existe pas en local"}), 404
 
-    analysis_data, packages_to_update = analyze_vulnerabilities(scan_result)
 
-    package_list = []
-    for pkg, version in packages_to_update.items():
-        package_list.append({
-            "libname": pkg,
-            "action": f"upgrade_{version}"
-        })
 
-    # Génération et build
-    new_name = image_name + "-secure"
-    result = generate_secure_dockerfile(image_name, package_list)
-    build_secure_image(new_name)
+    new_name = image_name.replace(":", "-") + "-secure"
 
-    return jsonify({
-        "status": "success",
-        "message": result,
-        "secure_image": new_name,
-        "download": f"/image/{new_name}",
-        "applied_fixes": package_list
-    })
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as report_file:
+            report_path = report_file.name
 
+        subprocess.run(
+            ["grype", image_name, "-o", "json", "-q", "--file", report_path],
+            check=True
+        )
+
+        result = subprocess.run(
+            ["copa", "patch", "--image", image_name, "--report", report_path, "--output", new_name],
+            capture_output=True, text=True, check=True
+        )
+
+        os.remove(report_path)
+
+        return jsonify({
+            "status": "success",
+            "message": result.stdout.strip(),
+            "secure_image": new_name,
+            "download": f"/image/{new_name}"
+        }), 200
+
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "status": "error",
+            "message": e.stderr.strip() if e.stderr else "Erreur lors de l'exécution de Grype ou CoPa"
+        }), 500
 
 @app.route('/fix/', methods=['POST'])
 def fix_post():
