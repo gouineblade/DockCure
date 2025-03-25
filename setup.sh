@@ -6,19 +6,25 @@ echo "🚀 Starting setup process..."
 if ! command -v grype &> /dev/null; then
     echo "💿 Grype not found. Installing..."
 
-    # Check if brew is installed
-    if command -v brew &> /dev/null; then
-        echo "📦 Homebrew detected. Installing Grype via Homebrew..."
-        brew install anchore/grype/grype
-    else
-        echo "🔽 Homebrew not found. Installing Grype manually..."
-        URL="https://github.com/anchore/grype/releases/latest/download/grype-darwin-amd64"
-        curl -sSfL "$URL" -o grype
-        chmod +x grype
-        sudo mv grype /usr/local/bin/
+    OS="$(uname -s)"
+    if [[ "$OS" != "Darwin" ]]; then
+        # Check if brew is installed
+        if command -v brew &> /dev/null; then
+            echo "📦 Homebrew detected. Installing Grype via Homebrew..."
+            brew install anchore/grype/grype
+        else
+            echo "🔽 Homebrew not found. Installing Grype manually for macOS..."
+            URL="https://github.com/anchore/grype/releases/latest/download/grype-darwin-amd64"
+            curl -sSfL "$URL" -o grype
+            chmod +x grype
+            sudo mv grype /usr/local/bin/
+        fi
+        echo "✅ Grype has been installed successfully!"
     fi
-
-    echo "✅ Grype has been installed successfully!"
+    
+    if ! command -v grype &> /dev/null; then
+        echo "💿 Could not install Grype, install it manually"
+    fi
 else
     echo "✅ Grype is already installed. Skipping installation."
 fi
