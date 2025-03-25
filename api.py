@@ -146,18 +146,54 @@ def generate_secure_dockerfile(base_image, packages):
 
     return f"Dockerfile sécurisé généré avec succès pour base {base_image} (PM: {pm})"
 
-
-# Construire une image sécurisée
 def build_secure_image(name):
     log("🚀 Construction de l'image sécurisée...")
-    cmd = f"docker build --rm -t {name} -f images/tmp/Dockerfile.secure ."
-    subprocess.run(cmd, shell=True)
-    
-    os.makedirs("images", exist_ok=True)
-    cmd = f"docker save {name} > images/{name}.tar"
-    subprocess.run(cmd, shell=True)
-    log(f"✅ Image sécurisée créée : {name}")
 
+    # 1) Exécuter la commande docker build en capturant la sortie
+    cmd_build = f"docker build --rm -t {name} -f images/tmp/Dockerfile.secure ."
+    result_build = subprocess.run(cmd_build, shell=True, capture_output=True, text=True)
+
+    # Sorties standard / erreur
+    build_output = result_build.stdout
+    build_error = result_build.stderr
+
+    # 2) Vérifier si le build a échoué
+    if result_build.returncode != 0:
+        # On log l'erreur et on renvoie un dictionnaire indiquant l'échec
+        error_msg = f"❌ Erreur lors de la construction de l'image Docker:\n{build_error}"
+        log(error_msg)
+        return {
+            "success": False,
+            "stdout": build_output,
+            "stderr": build_error
+        }
+
+    # Si on arrive ici, la construction est réussie
+    log("✅ La construction de l'image s'est terminée sans erreur.")
+
+    # 3) Enregistrer l'image uniquement si le build a réussi
+    cmd_save = f"docker save {name} > images/{name}.tar"
+    result_save = subprocess.run(cmd_save, shell=True, capture_output=True, text=True)
+
+    save_output = result_save.stdout
+    save_error = result_save.stderr
+
+    if result_save.returncode != 0:
+        error_msg = f"❌ Erreur lors de l'enregistrement de l'image Docker:\n{save_error}"
+        log(error_msg)
+        return {
+            "success": False,
+            "stdout": save_output,
+            "stderr": save_error
+        }
+
+    success_msg = f"✅ Image sécurisée créée et enregistrée : {name}"
+    log(success_msg)
+    return {
+        "success": True,
+        "stdout": success_msg,
+        "stderr": None
+    }
 
 def image_exists_locally(image_name):
     try:
@@ -199,11 +235,6 @@ def auto_fix():
     image_name = data.get("image_name")
     if not image_name:
         return jsonify({"error": "Paramètre 'image_name' requis"}), 400
-
-    #if not image_exists_locally(image_name):
-    #    return jsonify({"error": f"L'image '{image_name}' n'existe pas en local"}), 404
-
-
 
     new_name = image_name.replace(":", "-") + "-secure"
 
@@ -270,31 +301,50 @@ def fix_post():
                     description: Action à effectuer sur le paquet.
     responses:
       200:
-        description: Dockerfile.secure généré avec succès.
+        description: Dockerfile.secure généré et image construite avec succès.
       400:
-        description: Requête invalide, entrée incorrecte.
+        description: Échec de la construction (erreur dans la configuration ou l'installation des paquets).
     """
     try:
-        data = request.get_json()
-        image_name = data.get("image_name")
-        new_name = data.get("new_name") or image_name + "-secure"
-        packages = data.get("packages", []) or []
-        
-        result = generate_secure_dockerfile(image_name, packages)
-        build_secure_image(new_name)
-        return jsonify({"status": "success", "message": result, "secure_image": new_name, "download": f"/image/{new_name}"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        data = request.get_json() or {}
 
-def build_secure_image(name):
-    """Construit une nouvelle image sécurisée"""
-    log("🚀 Construction de l'image sécurisée...")
-    cmd = f"docker build --rm -t {name} -f images/tmp/Dockerfile.secure ."
-    subprocess.run(cmd, shell=True)
-    #quand c'est fini, on sauvegarde l'image dans le dossier images
-    cmd = f"docker save {name} > images/{name}.tar"
-    subprocess.run(cmd, shell=True)
-    log(f"✅ Image sécurisée créée : {name}")
+        image_name = data.get("image_name")
+        if not image_name:
+            return jsonify({
+                "status": "error",
+                "message": "Paramètre 'image_name' manquant."
+            }), 400
+
+        new_name = data.get("new_name") or f"{image_name}-secure"
+        packages = data.get("packages") or []
+
+        # Génération du Dockerfile
+        dockerfile_message = generate_secure_dockerfile(image_name, packages)
+
+        # Construction de l'image à partir du Dockerfile
+        build_result = build_secure_image(new_name)
+
+        # Vérification du succès/échec du build
+        if not build_result["success"]:
+            return jsonify({
+                "status": "error",
+                "message": build_result["stderr"] or "Erreur inconnue lors du build",
+                "stdout": build_result["stdout"]
+            }), 400
+
+        # En cas de succès : on renvoie le message et le nom de l'image sécurisée
+        return jsonify({
+            "status": "success",
+            "message": dockerfile_message,
+            "secure_image": new_name,
+            "download": f"/image/{new_name}"
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
 
 # Route pour récupérer l'image Docker sécurisée (lance le téléchargement)
 
