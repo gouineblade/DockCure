@@ -8,11 +8,39 @@ import os
 import threading
 import re
 from packaging.version import Version, InvalidVersion
+import tempfile
+
+
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": 'apispec',
+            "route": '/apispec.json',
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/apidocs/"
+}
+
+template = {
+    "swagger": "2.0",
+    "info": {
+        "title": "🛡️ CVE Auto-Fix API",
+        "description": "Scan, analyse et corrige automatiquement les images Docker vulnérables.",
+        "version": "1.0.0"
+    },
+    "basePath": "/",
+    "schemes": ["http"],
+}
 
 app = Flask(__name__)
 
 CORS(app)
-Swagger(app)
+Swagger(app, config=swagger_config, template=template)
 db_scan_results = {}  # Dictionnaire pour stocker les résultats des scans
 
 # Route racine qui génère la documentation automatique des endpoints
@@ -21,6 +49,26 @@ def index():
   #redirige vers la documentation
   return redirect('/apidocs/')
 
+def detect_package_manager(image_name):
+  """Détecte le type de gestionnaire de paquets utilisé dans une image Docker"""
+  try:
+      cmd = f"docker run --rm {image_name} cat /etc/os-release"
+      result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+      content = result.stdout.lower()
+
+      if "alpine" in content:
+          return "apk"
+      elif "debian" in content or "ubuntu" in content:
+          return "apt"
+      elif "centos" in content or "fedora" in content or "rhel" in content:
+          return "yum"
+      else:
+          return "unknown"
+  except Exception as e:
+      log(f"Erreur lors de la détection de l'OS: {e}")
+      return "unknown"
+
+
 # Vérifier si une version spécifique d'un package est disponible
 def is_version_available(package, version):
     cmd = f"apt-cache madison {package} | grep '{version}'"
@@ -28,33 +76,76 @@ def is_version_available(package, version):
     return bool(result.stdout.strip())
 
 # Générer dynamiquement un Dockerfile sécurisé
-def generate_secure_dockerfile(name, packages):
+def generate_secure_dockerfile(base_image, packages):
     os.makedirs("images/tmp", exist_ok=True)
     dockerfile_path = "images/tmp/Dockerfile.secure"
-    
+
+    pm = detect_package_manager(base_image)
+    log(f"🧠 Gestionnaire de paquets détecté pour {base_image} : {pm}")
+
     with open(dockerfile_path, "w") as f:
-        f.write(f"FROM {name}\n")
-        f.write("RUN apt-get update && apt-get upgrade -y\n")
-        
-        for pkg in packages:
-            libname = pkg["libname"]
-            action = pkg["action"]
-            
-            if action == "remove":
-                f.write(f"RUN apt-get remove -y {libname}\n")
-            elif action == "upgrade":
-                f.write(f"RUN apt-get install -y --only-upgrade {libname}\n")
-            elif action.startswith("upgrade_"):
-                version = action.split("_")[1]
-                if is_version_available(libname, version):
-                    f.write(f"RUN apt-get install -y {libname}={version}\n")
+        f.write(f"FROM {base_image}\n")
+
+        if pm == "apt":
+            f.write("RUN apt-get update && \\\n")
+            commands = []
+            for pkg in packages:
+                name = pkg.get("libname")
+                action = pkg.get("action")
+                if action == "remove":
+                    commands.append(f"apt-get remove -y {name}")
+                elif action.startswith("upgrade"):
+                    if action == "upgrade":
+                        commands.append(f"apt-get install -y --only-upgrade {name}")
+                    else:
+                        version = action.split("_")[-1]
+                        if is_version_available(name, version):
+                            commands.append(f"apt-get install -y {name}={version}")
                 else:
-                    f.write(f"# Version {version} non trouvée, mise à jour standard appliquée\n")
-                    f.write(f"RUN apt-get install -y --only-upgrade {libname}\n")
-        
-        f.write("RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*\n")
-    
-    return "Dockerfile sécurisé généré avec succès !"
+                    log(f"Action inconnue pour {name}: {action}")
+            if not commands:
+                commands.append("echo 'Aucune mise à jour requise'")
+            commands.append("apt-get clean")
+            f.write(" && \\\n".join(commands) + "\n")
+
+        elif pm == "apk":
+            f.write("RUN apk update && \\\n")
+            commands = []
+            for pkg in packages:
+                name = pkg.get("libname")
+                action = pkg.get("action")
+                if action == "remove":
+                    commands.append(f"apk del {name}")
+                elif action.startswith("upgrade"):
+                    # APK ne permet pas des upgrades ciblés par version facilement
+                    commands.append(f"apk add --upgrade {name}")
+                else:
+                    log(f"Action inconnue pour {name}: {action}")
+            if not commands:
+                commands.append("echo 'Aucune mise à jour requise'")
+            f.write(" && \\\n".join(commands) + "\n")
+
+        elif pm == "yum":
+            f.write("RUN yum update -y && \\\n")
+            commands = []
+            for pkg in packages:
+                name = pkg.get("libname")
+                action = pkg.get("action")
+                if action == "remove":
+                    commands.append(f"yum remove -y {name}")
+                elif action.startswith("upgrade"):
+                    commands.append(f"yum update -y {name}")
+                else:
+                    log(f"Action inconnue pour {name}: {action}")
+            if not commands:
+                commands.append("echo 'Aucune mise à jour requise'")
+            f.write(" && \\\n".join(commands) + "\n")
+
+        else:
+            f.write("RUN echo '⚠️ Gestionnaire de paquets non reconnu. Aucun correctif appliqué.'\n")
+
+    return f"Dockerfile sécurisé généré avec succès pour base {base_image} (PM: {pm})"
+
 
 # Construire une image sécurisée
 def build_secure_image(name):
@@ -66,6 +157,84 @@ def build_secure_image(name):
     cmd = f"docker save {name} > images/{name}.tar"
     subprocess.run(cmd, shell=True)
     log(f"✅ Image sécurisée créée : {name}")
+
+
+def image_exists_locally(image_name):
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+            capture_output=True, text=True, check=True
+        )
+        return image_name in result.stdout.splitlines()
+    except subprocess.CalledProcessError:
+        return False
+
+@app.route('/autofix', methods=['POST'])
+def auto_fix():
+    """
+    Analyse une image Docker avec Grype et applique automatiquement les corrections via CoPa.
+    ---
+    tags:
+      - Fix Automatisé
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            image_name:
+              type: string
+              description: Nom de l'image Docker à analyser et corriger.
+              example: "nginx:latest"
+    responses:
+      200:
+        description: Image corrigée avec succès via Grype + CoPa.
+      400:
+        description: Paramètre manquant ou invalide.
+      500:
+        description: Erreur lors de l'exécution de Grype ou CoPa.
+    """
+    data = request.get_json()
+    image_name = data.get("image_name")
+    if not image_name:
+        return jsonify({"error": "Paramètre 'image_name' requis"}), 400
+
+    #if not image_exists_locally(image_name):
+    #    return jsonify({"error": f"L'image '{image_name}' n'existe pas en local"}), 404
+
+
+
+    new_name = image_name.replace(":", "-") + "-secure"
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as report_file:
+            report_path = report_file.name
+
+        subprocess.run(
+            ["grype", image_name, "-o", "json", "-q", "--file", report_path],
+            check=True
+        )
+
+        result = subprocess.run(
+            ["copa", "patch", "--image", image_name, "--report", report_path, "--output", new_name],
+            capture_output=True, text=True, check=True
+        )
+
+        os.remove(report_path)
+
+        return jsonify({
+            "status": "success",
+            "message": result.stdout.strip(),
+            "secure_image": new_name,
+            "download": f"/image/{new_name}"
+        }), 200
+
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "status": "error",
+            "message": e.stderr.strip() if e.stderr else "Erreur lors de l'exécution de Grype ou CoPa"
+        }), 500
 
 @app.route('/fix/', methods=['POST'])
 def fix_post():
@@ -129,32 +298,42 @@ def build_secure_image(name):
 
 # Route pour récupérer l'image Docker sécurisée (lance le téléchargement)
 
-@app.route('/image/<image_name>', methods=['GET'])
-def get_image(image_name):
-    """Télécharge l'image Docker sécurisée
+@app.route('/image/', methods=['POST'])
+def get_image():
+    """
+    Télécharge une image Docker sécurisée.
     ---
     tags:
-      - Image
+        - Image
     parameters:
       - name: image_name
-        in: path
-        type: string
+        in: body
         required: true
-        description: Nom de l'image Docker sécurisée à télécharger.
+        schema:
+          type: object
+          properties:
+            image_name:
+              type: string
+              description: Nom de l'image Docker sécurisée à télécharger.
     responses:
       200:
-        description: Téléchargement de l'image Docker sécurisée
+        description: Téléchargement de l'image Docker sécurisée.
+      400:
+        description: Requête invalide, entrée incorrecte.
       404:
-        description: Image non trouvée
+        description: Image non trouvée.
     """
-    image_path = f"images/{image_name}.tar"
+    if not request.json or "image_name" not in request.json:
+        return jsonify({"error": "Paramètre 'image_name' manquant"}), 400
 
-    # Vérifier si l'image existe
+    image_name = request.args.get("image_name")
+
+    image_path = f"images/{image_name}.tar"
     if not os.path.exists(image_path):
         return jsonify({"error": "Image non trouvée"}), 404
     
-    # Envoyer le fichier en tant que pièce jointe pour le téléchargement
     return send_file(image_path, as_attachment=True)
+
 
 # Route pour retourner les scans en cours et les scans terminés
 @app.route('/scans', methods=['GET'])
