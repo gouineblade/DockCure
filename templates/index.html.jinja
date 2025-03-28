@@ -29,6 +29,12 @@
                 <div class="col-md-3 d-flex align-items-end">
                     <button class="btn btn-warning w-100" id="fixButton">Fix docker image</button>
                 </div>
+                <div class="col-md-3 d-flex align-items-end my-3">
+                    <button class="btn btn-warning w-100" id="autofixButton">Autofix docker image</button>
+                </div>
+                <div class="col-md-3 d-flex align-items-end my-3">
+                    <button class="btn btn-warning w-100" id="downloadButton" style="display: none;">Download fixed image</button>
+                </div>
             </div>
         <div class="row justify-content-center">
             <!-- Conteneur du spinner et du texte -->
@@ -60,9 +66,23 @@
 
             <div class="mt-4">
                 <label for="logs" class="form-label">Logs</label>
-                <textarea id="logs" class="form-control" rows="6" readonly></textarea>
+                <pre id="logs" class="form-control" rows="6" readonly></pre>
             </div>
         </div>
+        <!-- Menu contextuel (caché par défaut) -->
+<div id="contextMenu" class="dropdown-menu" style="display: none; position: absolute; z-index: 999;">
+    <!-- Pour une sélection multiple -->
+    <button class="dropdown-item" id="upgradeLatestMulti" style="display:none;">Upgrade to Latest</button>
+    <button class="dropdown-item" id="upgradeRecommendedMulti" style="display:none;">Upgrade to Recommended</button>
+    <button class="dropdown-item" id="removeMulti" style="display:none;">Remove</button>
+
+    <!-- Pour une sélection unique -->
+    <button class="dropdown-item" id="upgradeToVersionSingle" style="display:none;">Upgrade to...</button>
+    <button class="dropdown-item" id="upgradeLatestSingle" style="display:none;">Upgrade to Latest</button>
+    <button class="dropdown-item" id="upgradeRecommendedSingle" style="display:none;">Upgrade to Recommended</button>
+    <button class="dropdown-item" id="removeSingle" style="display:none;">Remove</button>
+</div>
+
     </div>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js')}}"></script>

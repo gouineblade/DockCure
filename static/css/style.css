@@ -1,0 +1,11 @@
+.selected {
+    background-color: #007bff; /* Bleu clair pour le fond */
+    color: white; /* Texte en blanc pour contraster avec le fond bleu */
+    box-shadow: 0 0 10px rgba(0, 123, 255, 0.5); /* Ombre autour de l'élément pour le faire ressortir */
+    cursor: pointer; /* Curseur en forme de main pour l'interaction */
+}
+
+
+.selected:hover {
+    background-color: #0056b3; /* Changer la couleur quand on survole un élément sélectionné */
+}
